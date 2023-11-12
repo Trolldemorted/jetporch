@@ -30,6 +30,7 @@ pub struct AptTask {
     pub version: Option<String>,
     pub update: Option<String>,
     pub remove: Option<String>,
+    pub no_install_recommends: Option<String>,
     pub with: Option<PreLogicInput>,
     pub and: Option<PostLogicInput>
 }
@@ -39,6 +40,7 @@ struct AptAction {
     pub version: Option<String>,
     pub update: bool,
     pub remove: bool,
+    pub no_install_recommends: bool,
 }
 
 impl IsTask for AptTask {
@@ -51,13 +53,14 @@ impl IsTask for AptTask {
         return Ok(
             EvaluatedTask {
                 action: Arc::new(AptAction {
-                    package:    handle.template.string_no_spaces(request, tm, &String::from("package"), &self.package)?,
-                    version:    handle.template.string_option_no_spaces(&request, tm, &String::from("version"), &self.version)?,
-                    update:     handle.template.boolean_option_default_false(&request, tm, &String::from("update"), &self.update)?,
-                    remove:     handle.template.boolean_option_default_false(&request, tm, &String::from("remove"), &self.remove)?
+                    package:                handle.template.string_no_spaces(request, tm, &String::from("package"), &self.package)?,
+                    version:                handle.template.string_option_no_spaces(request, tm, &String::from("version"), &self.version)?,
+                    update:                 handle.template.boolean_option_default_false(request, tm, &String::from("update"), &self.update)?,
+                    remove:                 handle.template.boolean_option_default_false(request, tm, &String::from("remove"), &self.remove)?,
+                    no_install_recommends:  handle.template.boolean_option_default_false(request, tm, &String::from("no_install_recommends"), &self.no_install_recommends)?,
                 }),
-                with: Arc::new(PreLogicInput::template(&handle, &request, tm, &self.with)?),
-                and: Arc::new(PostLogicInput::template(&handle, &request, tm, &self.and)?)
+                with: Arc::new(PreLogicInput::template(handle, request, tm, &self.with)?),
+                and: Arc::new(PostLogicInput::template(handle, request, tm, &self.and)?)
             }
         );
     }
@@ -144,10 +147,13 @@ impl PackageManagementModule for AptAction {
     }
 
     fn install_package(&self, handle: &Arc<TaskHandle>, request: &Arc<TaskRequest>) -> Result<Arc<TaskResponse>,Arc<TaskResponse>> {
-        let cmd = match self.version.is_none() {
-            true => format!("DEBIAN_FRONTEND=noninteractive apt-get install '{}' -qq", self.package),
-            false => format!("DEBIAN_FRONTEND=noninteractive apt-get install '{}={}' -qq", self.package, self.version.as_ref().unwrap())
-        };
+        let mut cmd = format!("DEBIAN_FRONTEND=noninteractive apt-get install {}", self.package);
+        if let Some(version) = &self.version {
+            cmd.push_str(&format!("={}", version))
+        }
+        if self.no_install_recommends {
+            cmd.push_str(" --no-install-recommends")
+        }
         return handle.remote.run(request, &cmd, CheckRc::Checked);
     }
 
